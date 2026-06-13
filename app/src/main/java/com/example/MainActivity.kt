@@ -102,9 +102,8 @@ class MainActivity : FragmentActivity() {
           val navController = rememberNavController()
           val isAr by vm.isArabic.collectAsState()
           val calibrationCompleted by vm.calibrationCompleted.collectAsState()
-          val onboardingCompleted by vm.onboardingCompleted.collectAsState()
+            val onboardingCompleted by vm.onboardingCompleted.collectAsState()
           val customApiKey by vm.customApiKey.collectAsState()
-          val isDataLoaded by vm.isDataLoaded.collectAsState()
 
           fun triggerBiometricAuth(title: String, subtitle: String, onSuccess: () -> Unit, closeOnCancel: Boolean = false) {
             if (isAuthInProgress) return
@@ -153,45 +152,35 @@ class MainActivity : FragmentActivity() {
             onDispose { lifecycle.removeObserver(observer) }
           }
 
-          // Wait for DataStore to finish loading before deciding where to go.
-          // While loading, startDestination stays "splash" so the splash screen
-          // keeps running. Once isDataLoaded=true the value updates and the
-          // rememberUpdatedState inside SplashScreen fires with the real destination.
-          val startDestination = remember(isDataLoaded, onboardingCompleted, calibrationCompleted) {
-              if (!isDataLoaded) "splash"
-              else when {
-                  !onboardingCompleted  -> "onboarding"
-                  !calibrationCompleted -> "calibration"
-                  else                  -> "dashboard"
-              }
+          val startDestination = when {
+              !onboardingCompleted -> "onboarding"
+              customApiKey.isBlank() -> "dashboard"
+              !calibrationCompleted -> "calibration"
+              else -> "dashboard"
           }
 
           CompositionLocalProvider(LocalAdaptiveConfig provides uiConfig) {
           NavHost(
-            navController = navController,
+            navController = navController, 
             startDestination = "splash",
             enterTransition = { fadeIn(animationSpec = tween(700)) },
             exitTransition = { fadeOut(animationSpec = tween(700)) }
           ) {
             composable("splash") {
                 SplashScreen(onNavigateToDashboard = {
-                    // Only navigate away once data is loaded (startDestination != "splash")
-                    if (startDestination != "splash") {
-                        navController.navigate(startDestination) {
-                            popUpTo("splash") { inclusive = true }
-                        }
+                    navController.navigate(startDestination) {
+                        popUpTo("splash") { inclusive = true }
                     }
                 })
             }
             composable("onboarding") {
-                OnboardingScreen { profile ->
-                    vm.completeOnboarding()
-                    if (profile != null) vm.saveUserProfile(profile.gender, profile.birthYear)
-                    navController.navigate("calibration") {
-                        popUpTo("onboarding") { inclusive = true }
-                    }
-                }
-            }
+                  OnboardingScreen {
+                      vm.completeOnboarding()
+                      navController.navigate("splash") {
+                          popUpTo("onboarding") { inclusive = true }
+                      }
+                  }
+              }
               composable("calibration") {
                 CalibrationScreen(viewModel = vm, onCalibrationComplete = {
                     navController.navigate("dashboard") { popUpTo("calibration") { inclusive = true } }
@@ -206,12 +195,7 @@ class MainActivity : FragmentActivity() {
 
               LaunchedEffect(isAcademyOpen) { if (isAcademyOpen) { activeTab = "academy"; vm.setAcademyOpen(false) } }
               LaunchedEffect(isResourcesOpen) { if (isResourcesOpen) { activeTab = "resources"; vm.setResourcesOpen(false) } }
-              // Only redirect to settings after data is loaded (avoids false blank flash)
-              LaunchedEffect(isDataLoaded, customApiKey) {
-                  if (isDataLoaded && customApiKey.isBlank() && vm.groqApiKey.value.isBlank()) {
-                      activeTab = "settings"; vm.setSettingsOpen(true)
-                  }
-              }
+              LaunchedEffect(Unit) { if (vm.customApiKey.value.isBlank()) { activeTab = "settings"; vm.setSettingsOpen(true) } }
               LaunchedEffect(customApiKey, calibrationCompleted) {
                   if (customApiKey.isNotBlank() && !calibrationCompleted) {
                       navController.navigate("calibration") { popUpTo("dashboard") { inclusive = false } }
