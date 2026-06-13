@@ -288,11 +288,15 @@ private fun parseDuas(arr: JSONArray?): List<LibraryItem> {
     if (arr == null) return emptyList()
     return (0 until arr.length()).map { i ->
         val obj = arr.getJSONObject(i)
+        // JSON keys: arabic, transliteration, occasion, source, category
+        val arabic   = obj.optString("arabic", "")
+        val occasion = obj.optString("occasion", obj.optString("category", "دعاء"))
+        val source   = obj.optString("source", "")
         LibraryItem(
             id = i,
-            title = obj.optString("occasion_ar", obj.optString("occasion_en", "دعاء")),
-            subtitle = obj.optString("occasion_en", ""),
-            body = obj.optString("arabic_text", "") + "\n\n" + obj.optString("translation_ar", obj.optString("transliteration", "")),
+            title = occasion.ifBlank { "دعاء" },
+            subtitle = if (source.isNotBlank()) "المصدر: $source" else "",
+            body = arabic,                       // Arabic text only — no transliteration
             tag = "دعاء مأثور"
         )
     }
@@ -302,26 +306,50 @@ private fun parseHadiths(arr: JSONArray?): List<LibraryItem> {
     if (arr == null) return emptyList()
     return (0 until arr.length()).map { i ->
         val obj = arr.getJSONObject(i)
+        // JSON keys: arabic, narrator, grade, topic
+        val arabic   = obj.optString("arabic", "")
+        val narrator = obj.optString("narrator", "")
+        val topic    = obj.optString("topic", "")
         LibraryItem(
             id = i,
-            title = obj.optString("text_ar", "حديث شريف").take(60),
-            subtitle = "رواه ${obj.optString("narrator", "")}",
-            body = obj.optString("text_ar", ""),
+            title = if (topic.isNotBlank()) topic else arabic.take(50),
+            subtitle = if (narrator.isNotBlank()) "رواه $narrator" else "",
+            body = arabic,
             tag = obj.optString("grade", "")
         )
     }
 }
 
+// Boilerplate suffix appended to every Arabic tip in the dataset — strip it
+// so tips don't look duplicated.
+private val TIP_BOILERPLATE_AR = Regex(
+    "\\s*هذا توجيه حيوي للحفاظ على وضعك الأمني الرقمي في ظل تهديدات متصاعدة\\.?\\s*$"
+)
+private val TIP_NUMBER_TAG_AR  = Regex("\\s*\\[نصيحة\\s*#?\\d+\\]\\s*")
+
+private fun cleanTip(text: String): String =
+    text.replace(TIP_NUMBER_TAG_AR, " ")
+        .replace(TIP_BOILERPLATE_AR, "")
+        .trim()
+
 private fun parseSecurityTips(arr: JSONArray?): List<LibraryItem> {
     if (arr == null) return emptyList()
-    return (0 until arr.length()).map { i ->
-        val obj = arr.getJSONObject(i)
-        LibraryItem(
+    val seen = HashSet<String>()
+    val out  = mutableListOf<LibraryItem>()
+    for (i in 0 until arr.length()) {
+        val obj  = arr.getJSONObject(i)
+        val body = cleanTip(obj.optString("tip_ar", obj.optString("tip_en", "")))
+        if (body.isBlank()) continue
+        // De-duplicate identical tips (after boilerplate stripping)
+        val key = body.take(80)
+        if (!seen.add(key)) continue
+        out += LibraryItem(
             id = i,
-            title = obj.optString("tip_ar", "").take(60).let { if (it.length == 60) "$it..." else it },
+            title = body.take(60).let { if (body.length > 60) "$it…" else it },
             subtitle = obj.optString("category_ar", obj.optString("category_en", "")),
-            body = obj.optString("tip_ar", obj.optString("tip_en", "")),
+            body = body,
             tag = obj.optString("category_en", "Security")
         )
     }
+    return out
 }
